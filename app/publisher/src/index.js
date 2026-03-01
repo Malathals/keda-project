@@ -14,6 +14,8 @@ const pool = new Pool({
 const randomText = crypto.randomBytes(20).toString("hex");
 const randomEventId = crypto.randomUUID();
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 const publisherJob = async () => {
   console.log(
     `Publishing event ${randomEventId} with random text: ${randomText}`,
@@ -28,13 +30,13 @@ const publisherJob = async () => {
     } catch (err) {
       console.error("Error publishing event:", err);
     } finally {
-      setTimeout(() => {
-        console.log(
-          `Published event done with ${randomEventId} & random text: ${randomText}`,
-        );
-      }, 1000);
+      await sleep(1000);
+      console.log(
+        `Published event done with ${randomEventId} & with random text: ${randomText}`,
+      );
     }
 
-    publisherJob();
   }
 };
+
+publisherJob();

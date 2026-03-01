@@ -4,22 +4,23 @@ import pkg from "pg";
 const { Pool } = pkg;
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL, 
+  connectionString: process.env.DATABASE_URL,
 });
 
 const podName = process.env.HOSTNAME || os.hostname() || "unknown";
 console.log(`Job Consumer ${podName} started`);
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function run() {
+const sleep = (ms) => new Promise((r)=> setTimeout(r, ms));
+
+const run = async () => {
   while (true) {
     const client = await pool.connect();
 
     try {
       await client.query("BEGIN");
 
-      // Pick + lock 1 job, then delete it and return payload
+      //used a lock to pick one job at a time, and delete it immediately to prevent other consumers from picking the same job
       const { rows } = await client.query(`
         WITH picked AS (
           SELECT id, payload
@@ -35,26 +36,24 @@ async function run() {
       `);
 
       if (rows.length === 0) {
+        // No jobs available, wait and retry
         await client.query("COMMIT");
-        client.release();
-        await sleep(1000);
+        console.log(`[${podName}] No jobs, waiting...`);
+        await sleep(2000);
         continue;
       }
+
+      console.log(`[${podName}] Picked job ${rows[0]}`);
 
       const { id, payload } = rows[0];
       console.log(`[${podName}] Processing job ${id}:`, payload);
 
-      // Simulate random processing time (2-10 seconds)
-      const processMs = 2000 + Math.random() * 8000;
-      await sleep(processMs);
+      await sleep(2000);
 
-      // Mark as done
       await client.query("INSERT INTO done_jobs (id) VALUES ($1)", [id]);
 
       await client.query("COMMIT");
-      console.log(
-        `[${podName}] Completed job ${id} in ${(processMs / 1000).toFixed(2)}s`
-      );
+      console.log(`[${podName}] Completed job ${id}`);
     } catch (e) {
       try {
         await client.query("ROLLBACK");
@@ -62,10 +61,11 @@ async function run() {
       console.error(`[${podName}] Error:`, e);
       await sleep(2000);
     } finally {
+      // Release the client back to the pool
       client.release();
     }
   }
-}
+};
 
 run().catch((e) => {
   console.error("Fatal:", e);
